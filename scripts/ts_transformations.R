@@ -13,7 +13,7 @@ library(feasts)
 ######### CRIME ##########
 crime <- readr::read_csv("../data/baltimore_crime.csv")
 
-# aggregate by days and convert to tibble
+# aggregate by days
 tb_crime <- tibble(crime) |>
   select(CrimeDate) |>
   group_by(CrimeDate) |>
@@ -21,24 +21,17 @@ tb_crime <- tibble(crime) |>
   arrange(CrimeDate) |>
   mutate(CrimeDate = as_date(CrimeDate, format="%m/%d/%Y")) |>
   filter(between(year(CrimeDate),2011,2015))
-  
+
 ts_crime <- tb_crime |> as_tsibble(index=CrimeDate)
 
-######## Monthly Total ##########
-ts_crime_monthly <- ts_crime |>
-  index_by(Month = ~ floor_date(.x, "month")) |>
-  filter(between(year(Month),2011,2015)) |>
-  summarise(Monthly_Total = sum(total))
-
-ts_crime_monthly
-
-######## Average Monthly ########
+######## Monthly Average ########
 ts_crime_monthly_avg <- ts_crime |>
   index_by(Month = ~ floor_date(.x, "month")) |>
   filter(between(year(Month),2011,2015)) |>
   summarise(Monthly_Total = sum(total)) |>
-  mutate(Num_Days = days_in_month(Month), 
-         Avg_perMonth = Monthly_Total/Num_Days)
+  mutate(Avg_perDay = Monthly_Total/Num_Days)
+
+x_numeric <- ts_crime_monthly_avg$Month
 
 y_left  <- ts_crime_monthly$Monthly_Total
 y_right <- ts_crime_monthly_avg$Avg_perMonth
@@ -76,16 +69,11 @@ us_pop <- readr::read_csv('../data/us_pop.csv', col_names = c('year','total'))
 auto_tsb <- tsibble(auto, index = year)
 us_pop_tsb <- tsibble(us_pop, index = year)
 
-auto_tsb |> autoplot()
-
-auto_tsb <- auto_tsb |> 
-  mutate(cars_per_1000 = (auto_tsb$total/us_pop_tsb$total)*1000)
-
 auto_pop <- left_join(auto_tsb, us_pop_tsb, by="year")
 
 auto_pop <- auto_pop |> 
-  rename( auto = total.x, population = total.y) |>
-  mutate(cars_per_1000 = (auto/population)*1000)
+  rename(car_regs_total = total.x, population = total.y) |>
+  mutate(cars_per_1000 = (car_regs_total/population)*1000)
   
 blue = "#3a6ea5"
 orange = "#f15025"
@@ -97,14 +85,14 @@ twoord.plot(lx = auto_pop$year,
             main = "Automobile ownership in the US",
             type = "l",
             lcol = grey, 
-            rcol = blue,
+            rcol = orange,
             lwd = 4
 )
 
 legend("topright", 
        bty="n",
        legend = c("Total Automobiles", "Automobiles/1000 ppl"), 
-       col = c(grey, blue), 
+       col = c(grey, orange), 
        lty = 1, # Line type
        lwd = 3  # Line width
        ) 
@@ -114,7 +102,10 @@ library(readr)
 
 # load dataset and adjust for inflation 
 watch_sales <- readr::read_csv("../data/watch_sales.csv") |>
-  mutate(real = (nominal/cpi)*240.01)
+  mutate(real = (nominal/cpi)*240.01) 
+
+options(digits = 22)
+print(watch_sales)
 
 # data transformation for plotting
 pl_watch_sales <- watch_sales |> 
@@ -150,4 +141,72 @@ pl_watch_sales |> ggplot(aes(x=year, y=amount)) +
   plot.background = element_rect(color = NA)
 )
 
+#### Air passengers ####
+
+library(latex2exp)
+library(scales)
+library(tseries)
+library(urca)
+
+air <- readr::read_csv("../data/air_passengers.csv")
+
+air <- air |> 
+  mutate(Month = as.Date(paste0(Month,"-01"), format="%Y-%m-%d")) |>
+  as_tsibble(index = Month)
+
+air |> autoplot() +
+  geom_line(size = 1.1, colour = orange) +
+  labs(x = "",
+       title = "Air passengers per month") +
+  theme(
+    legend.position = "none",
+    # hide legend
+    panel.background = element_rect(fill = "#f8f9fa"),
+    # change background color
+    panel.grid.major.y = element_line(colour = "#dfe0e1"),
+    # horizontal background grid
+    panel.grid.major.x = element_line(colour = "#f8f9fa"),
+    # hide vertical background
+    # Change title font size here
+    plot.title = element_text(size = 20)
+  )
+
+lambda <- air |>
+  features(Passengers, features = guerrero) |>
+  pull(lambda_guerrero)
+
+lambda  
+
+air <- air |> 
+  mutate(Month = as.Date(paste0(Month,"-01"), format="%Y-%m-%d"),
+         Passengers_bc = box_cox(Passengers, lambda)) |>
+  as_tsibble(index = Month)
+
+air
   
+air |>
+  autoplot(Passengers_bc) +
+  geom_line(size = 1.1,                                        # line width
+            colour = pink) +
+  labs(y = "",
+       x = "",
+       title = latex2exp::TeX(paste0(
+         "Transformed air passengers with $\\lambda$ = ",
+         round(lambda,2)))) +
+  scale_y_continuous(labels = scales::label_number(accuracy = 0.01)) +
+  theme(
+    legend.position = "none",
+    # hide legend
+    panel.background = element_rect(fill = "#f8f9fa"),
+    # change background color
+    panel.grid.major.y = element_line(colour = "#dfe0e1"),
+    # horizontal background grid
+    panel.grid.major.x = element_line(colour = "#f8f9fa"),
+    # hide vertical background
+    # Change title font size here
+    plot.title = element_text(size = 20)
+  )
+  
+  
+  
+
